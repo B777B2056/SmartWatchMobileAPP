@@ -13,6 +13,6 @@
 ### 2.1 蓝牙搜索
 ![bluetooth_img](./pic/bt.jpg)
 ### 2.2 地图显示
-![map_img][./pic/pos.jpg]
+![map_img](./pic/pos.jpg)
 ### 2.3 运动轨迹绘制
-![trace_img][./pic/trace.jpg]
+![trace_img](./pic/trace.jpg)
