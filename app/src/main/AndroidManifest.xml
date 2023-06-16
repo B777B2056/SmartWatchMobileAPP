@@ -38,7 +38,7 @@
 
         <meta-data
             android:name="com.baidu.lbsapi.API_KEY"
-            android:value="hNtmPA4RmLDM8zeWTb8iE1PGXg4LVk3H" />
+            android:value="${baiduMapsApiKey}" />
 
         <activity
             android:name=".PlotActivity"

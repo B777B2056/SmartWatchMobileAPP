@@ -17,8 +17,8 @@ import android.os.IBinder;
 import android.telephony.PhoneStateListener;
 import android.telephony.TelephonyCallback;
 import android.telephony.TelephonyManager;
+import android.util.Log;
 
-import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 
 import java.io.IOException;
@@ -131,9 +131,13 @@ public class IncomingCallService extends Service {
             socket.connect();
             inputStream = socket.getInputStream();
             outputStream = socket.getOutputStream();
-            System.out.println("Connect ok");
+            new Thread(() -> {
+                for (;;) {
+                    getMsgFromBluetooth();
+                }
+            }).start();
         } catch (IOException e) {
-            System.out.println(e.getMessage());
+            Log.d("IO error", e.getMessage());
             try {
                 socket.close();
             } catch (IOException ex) {
@@ -176,11 +180,6 @@ public class IncomingCallService extends Service {
         } else {
             telephonyManager.listen(new MyPhoneStateListener(), PhoneStateListener.LISTEN_CALL_STATE);
         }
-        new Thread(() -> {
-            for (;;) {
-                getMsgFromBluetooth();
-            }
-        }).start();
     }
     @Override
     public void onDestroy() {
