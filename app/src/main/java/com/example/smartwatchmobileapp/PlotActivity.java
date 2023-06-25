@@ -9,6 +9,7 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
 import android.Manifest;
+import android.app.role.RoleManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -19,6 +20,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.IBinder;
 import android.provider.Settings;
+import android.telecom.TelecomManager;
 import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;

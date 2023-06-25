@@ -7,13 +7,19 @@ import android.app.NotificationManager;
 import android.app.Service;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.os.Binder;
 import android.os.Build;
 import android.os.IBinder;
+import android.telecom.Call;
+import android.telecom.InCallService;
+import android.telecom.TelecomManager;
+import android.telecom.VideoProfile;
 import android.telephony.PhoneStateListener;
 import android.telephony.TelephonyCallback;
 import android.telephony.TelephonyManager;
@@ -24,6 +30,8 @@ import androidx.annotation.RequiresApi;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.UUID;
 
 public class IncomingCallService extends Service {
@@ -34,10 +42,12 @@ public class IncomingCallService extends Service {
     private final byte MSG_TYPE_KAL = 0x04;
     private final byte MSG_TYPE_HEART_RATE = 0x05;
     private final byte MSG_TYPE_SPO2 = 0x06;
+    private final byte MSG_TYPE_CALL_REJECT_NOTIFY = 0x07;
+    private final byte MSG_TYPE_CALL_ACCEPT_NOTIFY = 0x08;
     private BluetoothSocket socket;
     private InputStream inputStream;
     private OutputStream outputStream;
-    private TelephonyManager telephonyManager;
+    private static final String CHANNEL_ID = "IncomingCallService";
     public static class DataStruct {
         public String stepCnt = null;
         public String kal = null;
@@ -55,78 +65,70 @@ public class IncomingCallService extends Service {
             }
         }
     };
-    @RequiresApi(api = Build.VERSION_CODES.S)
-    private class MyCallStateListener extends TelephonyCallback implements TelephonyCallback.CallStateListener {
-        private int lastState = -1;
+    private TelecomManager telecomManager = null;
+    public class CallReceiver extends BroadcastReceiver {
+        private static final String TAG = "CallReceiver";
+        private String lastState = null;
         @Override
-        public void onCallStateChanged(int state) {
-            switch (state){
-                case TelephonyManager.CALL_STATE_IDLE:  // 空闲状态
-                case TelephonyManager.CALL_STATE_OFFHOOK:   // 接电话状态
-                    if (TelephonyManager.CALL_STATE_RINGING == lastState) {
-                        try {
-                            outputStream.write(concatMessage(MSG_TYPE_CALL_HANGUP_NOTIFY, ""));
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
-                    }
-                    break;
-                case TelephonyManager.CALL_STATE_RINGING:   // 来电铃响时
-                    String phoneNumber = "";
-                    try {
-                        outputStream.write(concatMessage(MSG_TYPE_COMING_CALL_NOTIFY, phoneNumber));
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-                    break;
-            }
-            lastState = state;
-        }
-    }
-    private static final String CHANNEL_ID = "IncomingCallService";
-    private class MyPhoneStateListener extends PhoneStateListener {
-        private int lastState = -1;
-        @Override
-        public void onCallStateChanged(int state, String phoneNumber) {
-            super.onCallStateChanged(state, phoneNumber);
-            switch (state) {
-                case TelephonyManager.CALL_STATE_IDLE:
-                case TelephonyManager.CALL_STATE_OFFHOOK:
-                    if (TelephonyManager.CALL_STATE_RINGING == lastState) {
-                        try {
-                            outputStream.write(concatMessage(MSG_TYPE_CALL_HANGUP_NOTIFY, ""));
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
-                    }
-                    break;
-                case TelephonyManager.CALL_STATE_RINGING:
-                    try {
-                        outputStream.write(concatMessage(MSG_TYPE_COMING_CALL_NOTIFY, phoneNumber));
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-                    break;
-            }
-            lastState = state;
-        }
-    }
+        public void onReceive(Context context, Intent intent) {
+            String action = intent.getAction();
 
+            if (action != null && action.equals(TelephonyManager.ACTION_PHONE_STATE_CHANGED)) {
+                String state = intent.getStringExtra(TelephonyManager.EXTRA_STATE);
+                if (state != null) {
+                    if (state.equals(TelephonyManager.EXTRA_STATE_RINGING)) {
+                        String phoneNumber = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER);
+                        if (phoneNumber == null)    return;
+                        Log.d(TAG, "Incoming call from: " + phoneNumber);
+                        // 通知手环有来电
+                        try {
+                            outputStream.write(concatMessage(MSG_TYPE_COMING_CALL_NOTIFY, phoneNumber));
+                            telecomManager = (TelecomManager) context.getSystemService(Context.TELECOM_SERVICE);
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                    if (state.equals(TelephonyManager.EXTRA_STATE_IDLE)) {
+                        // 通知手环电话被挂断
+                        if (lastState.equals(TelephonyManager.EXTRA_STATE_RINGING)) {
+                            Log.d(TAG, "Incoming call hung up");
+                            try {
+                                outputStream.write(concatMessage(MSG_TYPE_CALL_HANGUP_NOTIFY, ""));
+                            } catch (IOException e) {
+                                e.printStackTrace();
+                            }
+                        }
+                    }
+                    if (state.equals(TelephonyManager.EXTRA_STATE_OFFHOOK)) {
+                        // 通知手环电话被接听
+                        if (lastState.equals(TelephonyManager.EXTRA_STATE_RINGING)) {
+                            Log.d(TAG, "Incoming call accept");
+                            try {
+                                outputStream.write(concatMessage(MSG_TYPE_CALL_ACCEPT_NOTIFY, ""));
+                            } catch (IOException e) {
+                                e.printStackTrace();
+                            }
+                        }
+                    }
+                    lastState = state;
+                }
+            }
+        }
+    }
     public IncomingCallService() {
 
     }
-
     @Override
     public IBinder onBind(Intent intent) {
         return new IncomingCallServiceBinder();
     }
-
     @SuppressLint("MissingPermission")
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         super.onStartCommand(intent, flags, startId);
+        this.registerReceiver(new CallReceiver(), new IntentFilter(TelephonyManager.ACTION_PHONE_STATE_CHANGED));
         try {
-            BluetoothDevice device = (BluetoothDevice) intent.getExtras().getParcelable("bt_dev");
+            BluetoothDevice device = intent.getExtras().getParcelable("bt_dev");
             socket = device.createRfcommSocketToServiceRecord(UUID.fromString("00001101-0000-1000-8000-00805F9B34FB"));
             socket.connect();
             inputStream = socket.getInputStream();
@@ -146,7 +148,6 @@ public class IncomingCallService extends Service {
         }
         return START_REDELIVER_INTENT;
     }
-
     @Override
     public void onCreate() {
         super.onCreate();
@@ -170,16 +171,6 @@ public class IncomingCallService extends Service {
                         .build();
                 startForeground(1,notification);
         }
-        telephonyManager = (TelephonyManager)getSystemService(Context.TELEPHONY_SERVICE);
-        if (telephonyManager == null) {
-            System.out.println("NULL TelephonyManager");
-            return;
-        }
-        if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            telephonyManager.registerTelephonyCallback(this.getMainExecutor(), new MyCallStateListener());
-        } else {
-            telephonyManager.listen(new MyPhoneStateListener(), PhoneStateListener.LISTEN_CALL_STATE);
-        }
     }
     @Override
     public void onDestroy() {
@@ -198,7 +189,6 @@ public class IncomingCallService extends Service {
             e.printStackTrace();
         }
     }
-
     private byte[] concatMessage(byte msg_type, String content) {
         byte[] pkg = new byte[2+content.length()];
         pkg[0] = msg_type;
@@ -229,6 +219,19 @@ public class IncomingCallService extends Service {
                     break;
                 case MSG_TYPE_SPO2:
                     mData.spo2 = new String(msg);
+                    break;
+                case MSG_TYPE_CALL_REJECT_NOTIFY:
+                    // 拒绝来电
+                    Log.d("Incoming call: ", "MSG_TYPE_CALL_REJECT_NOTIFY");
+                    if (telecomManager != null) {
+                        try {
+                            Method method = telecomManager.getClass().getMethod("endCall");
+                            method.invoke(telecomManager);
+                        } catch (NoSuchMethodException | IllegalAccessException |
+                                 InvocationTargetException e) {
+                            e.printStackTrace();
+                        }
+                    }
                     break;
                 default:
                     break;

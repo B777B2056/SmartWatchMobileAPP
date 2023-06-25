@@ -3,11 +3,14 @@ package com.example.smartwatchmobileapp;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
+
 import android.Manifest;
 import android.annotation.SuppressLint;
+import android.app.role.RoleManager;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
-import android.bluetooth.BluetoothSocket;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -15,17 +18,10 @@ import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
-import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.ListView;
-import android.widget.ProgressBar;
 import android.widget.Toast;
-
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.util.ArrayList;
-import java.util.UUID;
 
 public class MainActivity extends AppCompatActivity {
     private ArrayAdapter<String> pairedDeviceListAdapter, newDeviceListAdapter;
@@ -93,13 +89,34 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void dynamicAcquirePermission() {
+        // 来电权限
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            RoleManager roleManager = (RoleManager) getSystemService(ROLE_SERVICE);
+            Intent intent = roleManager.createRequestRoleIntent(RoleManager.ROLE_DIALER);
+            startActivityForResult(intent, 1);
+        }
         //判断是否有访问位置的权限，没有权限，直接申请位置权限
         if ((checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED)
                 || (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED)) {
             requestPermissions(new String[]{Manifest.permission.ACCESS_COARSE_LOCATION, Manifest.permission.ACCESS_FINE_LOCATION}, 200);
         }
+        // 请求电话状态权限
+        if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.READ_PHONE_STATE},
+                    1);
+        }
+        if (checkSelfPermission(Manifest.permission.READ_CALL_LOG) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.READ_CALL_LOG},
+                    1);
+        }
+        if (checkSelfPermission(Manifest.permission.ANSWER_PHONE_CALLS) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.ANSWER_PHONE_CALLS},
+                    1);
+        }
     }
-
     private void listViewInit() {
         ListView newDeviceListView = findViewById(R.id.bt_list2);
         newDeviceListAdapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1);
